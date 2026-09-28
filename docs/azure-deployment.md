@@ -1,10 +1,12 @@
 # Azure deployment preparation
 
-Target Azure App Service's built-in .NET 10 runtime with Azure SQL Database. The app runs directly on App Service; the repository's SQL Server Compose service remains a development dependency. This guide prepares a later deployment. No Azure resources, identities, or role assignments are created by the repository, and deployment must be validated in an Azure staging environment before production.
+Target Azure App Service's built-in .NET 10 runtime with Azure SQL Database. The app runs directly on App Service; the repository's SQL Server Compose service remains a development dependency. Azure resources, identities, and role assignments are managed separately from the repository. Validate each release against the deployed app before inviting users.
 
 ## App Service settings
 
-Start with one instance and a plan that supports Always On. Choose a region close to the Azure SQL database. Publish `IngaCal/IngaCal.csproj` in Release and deploy the publish output. Built-in Windows hosting supplies IIS integration; Linux hosting also needs the HTTPS forwarding configuration below. Confirm .NET 10 runtime availability on the selected App Service stack at deployment time.
+Start with one instance and choose a region close to the Azure SQL database. Publish **only** `IngaCal/IngaCal.csproj` in Release and deploy its publish output, not a solution-level publish containing the test project. Built-in Windows hosting supplies IIS integration; Linux hosting also needs the HTTPS forwarding configuration below. Confirm .NET 10 runtime availability on the selected App Service stack at deployment time.
+
+The initial deployment uses the **Windows F1 Free** App Service plan in Central US, SQL server `ingacal.database.windows.net`, database `ingacaldb` (Basic), and web app `ingacal` at `ingacal-drejfqenf6gcb6dz.centralus-01.azurewebsites.net`. The GitHub Actions workflow publishes on pushes to `main` and deploys that artifact using its separate GitHub deployment identity. F1 supports WebSockets with a limit of five concurrent connections per instance, but does **not** support Always On: expect cold starts after inactivity and respect Free CPU/bandwidth quotas. Upgrade to Basic or higher when these constraints are unacceptable.
 
 Set these application settings through App Service configuration (or infrastructure as code when provisioning is introduced):
 
@@ -18,13 +20,13 @@ Set these application settings through App Service configuration (or infrastruct
 
 Use a separate database and `DataProtection__ApplicationName` for an independent test environment. Choose application settings consistently; if using App Service's **Connection strings** section instead, use the name `DefaultConnection` and type `SQLAzure`, and avoid defining a conflicting app setting.
 
-Enable **HTTPS Only**, **Always On**, **WebSockets**, and **session/ARR affinity**. Keep App Service Authentication (Easy Auth) disabled for the initial deployment: the application already owns authentication through ASP.NET Core Identity. Configure Health check to use `/health`. It permits anonymous requests and returns only the standard health status: 200 when EF can connect to SQL, 503 when it cannot. It does not validate schema currency, apply migrations, or exercise sign-in.
+Enable **HTTPS Only**, **WebSockets**, and **session/ARR affinity**. Enable **Always On** only on a plan that supports it (not F1). Keep App Service Authentication (Easy Auth) disabled for the initial deployment: the application already owns authentication through ASP.NET Core Identity. Probe `/health` directly; if the plan supports the App Service Health check feature, configure it to use `/health`. It permits anonymous requests and returns only the standard health status: 200 when EF can connect to SQL, 503 when it cannot. It does not validate schema currency, apply migrations, or exercise sign-in.
 
 For **Linux App Service**, set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` only behind the managed App Service ingress, following Microsoft's cloud-hosting guidance. This forwards the original HTTPS scheme before HTTPS redirection; the switch relaxes proxy-address checks and must not be copied to an app exposed directly to untrusted traffic. For another reverse proxy, configure its specific trusted proxies/networks instead. Validate HTTPS redirects and secure cookies through the public hostname after deployment. Windows IIS hosting supplies this integration automatically.
 
 Interactive Server circuits live in the app process. Deployment/restart can require reconnecting or reloading; persistent authentication keys do not preserve circuits. Before scaling out, load-test affinity and connection limits. Azure SignalR Service is an optional later scaling choice, with server-sticky routing for Blazor; it is not needed for the initial deployment. Use a stable HTTPS hostname before registering passkeys.
 
-Sources: [Blazor on App Service](https://learn.microsoft.com/aspnet/core/blazor/host-and-deploy/server/?view=aspnetcore-10.0#azure-app-service), [forwarded headers](https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0#forward-the-scheme-for-linux-and-non-iis-reverse-proxies), [App Service health checks](https://learn.microsoft.com/azure/app-service/monitor-instances-health-check).
+Sources: [Blazor on App Service](https://learn.microsoft.com/aspnet/core/blazor/host-and-deploy/server/?view=aspnetcore-10.0#azure-app-service), [forwarded headers](https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0#forward-the-scheme-for-linux-and-non-iis-reverse-proxies), [App Service health checks](https://learn.microsoft.com/azure/app-service/monitor-instances-health-check), [App Service Free limits](https://learn.microsoft.com/azure/azure-resource-manager/management/azure-subscription-service-limits#azure-app-service-limits).
 
 ## Azure SQL and managed identity
 
@@ -32,17 +34,17 @@ Enable the App Service's system-assigned managed identity. Configure a Microsoft
 
 ```sql
 -- Replace with the managed identity's name; disambiguate duplicate Entra names if necessary.
-CREATE USER [ingacal-production] FROM EXTERNAL PROVIDER;
-ALTER ROLE db_datareader ADD MEMBER [ingacal-production];
-ALTER ROLE db_datawriter ADD MEMBER [ingacal-production];
+CREATE USER [ingacal] FROM EXTERNAL PROVIDER;
+ALTER ROLE db_datareader ADD MEMBER [ingacal];
+ALTER ROLE db_datawriter ADD MEMBER [ingacal];
 ```
 
-This baseline grants application data access, not schema ownership. The existing application lock uses the database's `public` principal. Verify its execution under the actual runtime identity. Restrict database network access to the chosen App Service network path, preferably VNet integration with an Azure SQL private endpoint and correctly configured private DNS. Avoid broadly enabling all Azure services as the permanent firewall solution.
+This baseline grants application data access, not schema ownership. The user-assigned identity `ingacal-id-af2a` is for GitHub Actions deployment; the web app itself uses its **system-assigned** identity to connect to SQL. The existing application lock uses the database's `public` principal. Verify its execution under the actual runtime identity. On F1, allow the app's current outbound IPs in SQL server firewall rules (recheck after changing tiers or moving the app); remove the broad **Allow Azure services and resources to access this server** (`0.0.0.0`) rule. Higher tiers can use VNet integration with an Azure SQL private endpoint and private DNS. Retain a narrow temporary administrator IP rule only while it is needed.
 
 Set the runtime connection string to:
 
 ```text
-Server=tcp:<server>.database.windows.net,1433;Database=IngaCal;Authentication=Active Directory Managed Identity;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
+Server=tcp:ingacal.database.windows.net,1433;Database=ingacaldb;Authentication=Active Directory Managed Identity;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
 ```
 
 There is no SQL password. For a user-assigned managed identity, assign it to the app and add `User ID=<managed-identity-client-id>` to the connection string. Local development continues using the container and user secrets; the production identity is not required to run locally.
@@ -90,6 +92,6 @@ Before the first production release, verify in Azure staging:
 2. Registration, login/logout, antiforgery-protected forms, journal edits and concurrent overlap rejection, reports, passkeys/2FA on the intended hostname, and data/key persistence across app restart and redeployment.
 3. HTTPS forwarding, WebSockets, reconnect behavior, affinity, and any planned scale-out/slot swap. Check logs for ephemeral-key or key-decryption warnings.
 4. Migration permissions under the separate deployment identity, a rehearsed database/key recovery path, and the chosen response to transient Azure SQL failures.
-5. Resolve the existing sign-out redirect issue recorded in `docs/testing.md` before launch. This hosting preparation does not change that endpoint.
+5. Check sign-out returns to the sign-in page without an error; the previously recorded `~//` redirect issue has been corrected.
 
 Source: [Azure SQL automated backups and restore](https://learn.microsoft.com/azure/azure-sql/database/automated-backups-overview?view=azuresql).

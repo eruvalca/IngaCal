@@ -99,7 +99,7 @@ Azure infrastructure is not provisioned or tested here. Managed identity, App Se
 - Native `BACKUP DATABASE ... WITH COPY_ONLY, CHECKSUM`, `RESTORE VERIFYONLY`, and restore to a separate database succeeded. The restored account, 80-minute activity, and tag association were verified.
 - The retired `--backup` command returned a nonzero exit with SQL Server guidance and created no backup file.
 
-An unrelated existing issue was observed: Sign out clears the cookie but the unchanged logout endpoint constructs `~//` from the navigation form's `/` return URL, causing a local-redirect exception. Navigating to Sign in and logging in succeeds. This provider migration does not alter that endpoint. Hardware passkey/2FA ceremonies and actual production infrastructure were not exercised; passkey persistence is covered by the automated SQL Server tests.
+An unrelated issue was observed at the time: Sign out cleared the cookie but the logout endpoint constructed `~//` from the navigation form's `/` return URL, causing a local-redirect exception. The endpoint now uses the supplied local URL directly; deployment smoke checks should confirm the redirect. Hardware passkey/2FA ceremonies were not exercised in this test; passkey persistence is covered by the automated SQL Server tests.
 
 ## Browser and deployment checks
 
