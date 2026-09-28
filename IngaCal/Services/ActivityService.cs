@@ -1,6 +1,10 @@
 using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 using IngaCal.Data;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace IngaCal.Services;
 
@@ -28,10 +32,23 @@ public sealed class ActivityService(IDbContextFactory<ApplicationDbContext> fact
         if (edit.End <= edit.Start) throw new JournalException("End time must be after start time.");
         if (edit.Start.Ticks % TimeSpan.TicksPerMinute != 0 || edit.End.Ticks % TimeSpan.TicksPerMinute != 0)
             throw new JournalException("Enter times in whole minutes.");
+        try { return await SaveValidatedAsync(edit, userId, title, description, token); }
+        catch (Exception e) when (token.IsCancellationRequested &&
+            (e is SqlException || e is DbUpdateException { InnerException: SqlException }))
+        { throw new OperationCanceledException("The journal save was cancelled.", e, token); }
+        catch (SqlException e) when (e.Number is 1205 or 1222)
+        { throw new JournalException("Another operation is updating your journal. Please try again."); }
+        catch (DbUpdateException e) when (e.InnerException is SqlException { Number: 1205 or 1222 })
+        { throw new JournalException("Another operation is updating your journal. Please try again."); }
+    }
+
+    private async Task<ActivityDto> SaveValidatedAsync(ActivityEdit edit, string userId, string title, string description, CancellationToken token)
+    {
         await using var db = await factory.CreateDbContextAsync(token);
-        // SQLite's non-deferred Serializable transaction reserves the writer before the overlap query.
-        // All application writes use this path, including changes from a second circuit/tab.
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, token);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        // Serialize this account's saves across connections/instances before checking for overlaps.
+        // Transaction ownership releases the lock on commit, rollback, or disposal after any failure.
+        await AcquireSaveLockAsync(db, userId, token);
         var item = edit.Id.HasValue
             ? await db.Activities.Include(x => x.ActivityTags).ThenInclude(x => x.Tag)
                 .SingleOrDefaultAsync(x => x.Id == edit.Id && x.UserId == userId, token)
@@ -69,6 +86,28 @@ public sealed class ActivityService(IDbContextFactory<ApplicationDbContext> fact
         await using var db = await factory.CreateDbContextAsync(token);
         var count = await db.Activities.Where(x => x.UserId == userId && x.Id == id && x.Version == version).ExecuteDeleteAsync(token);
         if (count == 0) throw new JournalException("This activity changed or was deleted. Close the editor and refresh.");
+    }
+
+    private static async Task AcquireSaveLockAsync(ApplicationDbContext db, string userId, CancellationToken token)
+    {
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.Transaction = db.Database.CurrentTransaction!.GetDbTransaction();
+        command.CommandText = """
+            DECLARE @result int;
+            EXEC @result = sys.sp_getapplock @Resource = @resource, @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction', @LockTimeout = 10000;
+            SELECT @result;
+            """;
+        var resource = command.CreateParameter();
+        resource.ParameterName = "@resource";
+        resource.Value = "IngaCal:Activity:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(userId)));
+        command.Parameters.Add(resource);
+        var result = (int)(await command.ExecuteScalarAsync(token))!;
+        token.ThrowIfCancellationRequested();
+        if (result is -1 or -2 or -3)
+            throw new JournalException("Another operation is updating your journal. Please try again.");
+        if (result < 0)
+            throw new InvalidOperationException("SQL Server could not acquire the journal save lock.");
     }
 
     internal static ActivityDto ToDto(Activity item) => new(item.Id, item.Title, item.Description,

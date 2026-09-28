@@ -4,13 +4,13 @@
 
 - `IngaCal/` hosts the .NET 10 Blazor application. Application pages use Interactive Server without prerendering; Identity pages use static SSR.
 - `Components/` groups pages, layouts, calendar, reports, and account UI. Keep JavaScript modules beside their components as `ComponentName.razor.js`.
-- `Services/` contains journal operations, DTOs, reporting, and time-zone logic; `Data/` contains entities, SQLite configuration, and EF Core migrations.
+- `Services/` contains journal operations, DTOs, reporting, and time-zone logic; `Data/` contains entities, SQL Server configuration, and EF Core migrations.
 - `wwwroot/` contains styling and local vendor assets. Retain bundled Bootstrap and vendor license notices.
 - `IngaCal.Tests/` contains .NET tests; `scripts/tests/` contains JavaScript tests. See `README.md` for deployment and `docs/testing.md` for acceptance checks.
 
 ## Build, Test, and Development Commands
 
-Run from the repository root with the .NET 10 SDK; JavaScript tests also require Node.js:
+Run from the repository root with the .NET 10 SDK; JavaScript tests also require Node.js; database tests require Docker with Linux containers:
 
 ```powershell
 dotnet restore IngaCal.sln                         # Restore dependencies
@@ -21,7 +21,7 @@ node --test scripts/tests/report-chart-labels.test.mjs
 dotnet publish IngaCal/IngaCal.csproj -c Release -o artifacts/publish
 ```
 
-Development startup applies migrations. Use isolated database and key paths for previews.
+Development startup applies migrations. Use isolated SQL Server database names, Data Protection application names, and optional key paths for previews. Production startup does not migrate; see `docs/azure-deployment.md` for Azure App Service preparation.
 
 ## Coding Style & Naming Conventions
 
@@ -31,7 +31,7 @@ Keep components focused and validation in services. Obtain ownership from authen
 
 ## Testing Guidelines
 
-Use xUnit with VSTest, bUnit for components, real temporary SQLite databases for persistence, and Node's built-in test runner for chart JavaScript. Name tests `Operation_Scenario_ExpectedBehavior` in `*Tests.cs`. No numeric coverage threshold is configured. Cover changed behavior, especially account isolation, overlaps, stale edits, DST, and report denominators. Verify visual changes on desktop/mobile and light/dark themes.
+Use xUnit with VSTest, bUnit for components, real isolated SQL Server 2025 databases via a shared Testcontainers fixture for persistence, and Node's built-in test runner for chart JavaScript. Name tests `Operation_Scenario_ExpectedBehavior` in `*Tests.cs`. No numeric coverage threshold is configured. Cover changed behavior, especially account isolation, overlaps, stale edits, DST, and report denominators. Verify visual changes on desktop/mobile and light/dark themes.
 
 ## Commit & Pull Request Guidelines
 
@@ -39,4 +39,4 @@ History uses plain descriptive messages, such as `Build personal time journal wi
 
 ## Data & Configuration Safety
 
-Never commit or publish live databases, sidecars, backups, or data-protection keys. Configure `ConnectionStrings__DefaultConnection` and `Storage__DataProtectionPath` for isolated previews or persistent production storage. Preserve existing data; follow the README's backup and explicit production migration procedure. Keep UTC storage and existing elapsed-time/report-counting semantics intact.
+Never commit or publish live databases, sidecars, backups, or data-protection keys. Configure `ConnectionStrings__DefaultConnection` for the target database. Data Protection uses the host's default key store; `Storage__DataProtectionPath` is an optional override and `DataProtection__ApplicationName` isolates environments sharing a store. Preserve existing data; follow the README's backup and explicit production migration procedure. For Azure SQL Database, use its managed backup/restore procedures. Keep UTC storage and existing elapsed-time/report-counting semantics intact.

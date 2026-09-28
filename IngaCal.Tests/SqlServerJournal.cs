@@ -1,22 +1,25 @@
 using IngaCal.Data;
 using IngaCal.Services;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IngaCal.Tests;
 
-internal sealed class SqliteJournal : IAsyncDisposable, IDbContextFactory<ApplicationDbContext>
+internal sealed class SqlServerJournal(SqlServerFixture server) : IAsyncDisposable, IDbContextFactory<ApplicationDbContext>
 {
     public const string Alice = "alice";
     public const string Bob = "bob";
     public static readonly DateTimeOffset Morning = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
     private readonly ServiceProvider applicationServices = new ServiceCollection()
-        .Configure<IdentityOptions>(options => options.Stores.SchemaVersion = IdentitySchemaVersions.Version3)
+        .Configure<IdentityOptions>(IdentityConfiguration.Configure)
         .BuildServiceProvider();
-    public string DatabasePath { get; } = Path.Combine(Path.GetTempPath(), $"ingacal-test-{Guid.NewGuid():N}.db");
+    public string DatabaseName { get; } = $"IngaCalTest_{Guid.NewGuid():N}";
+    public string ConnectionString => new SqlConnectionStringBuilder(server.ConnectionString)
+        { InitialCatalog = DatabaseName, Pooling = false }.ConnectionString;
     public DbContextOptions<ApplicationDbContext> Options => new DbContextOptionsBuilder<ApplicationDbContext>()
-        .UseSqlite($"Data Source={DatabasePath};Pooling=False;Default Timeout=10")
+        .UseSqlServer(ConnectionString)
         .UseApplicationServiceProvider(applicationServices)
         .Options;
 
@@ -25,14 +28,22 @@ internal sealed class SqliteJournal : IAsyncDisposable, IDbContextFactory<Applic
     public TagService Tags(string user = Alice) => new(this, new TestUser(user));
     public ReportService Reports(string user = Alice) => new(Activities(user));
 
-    public static async Task<SqliteJournal> CreateAsync()
+    public static async Task<SqlServerJournal> CreateAsync(SqlServerFixture server)
     {
-        var journal = new SqliteJournal();
-        await using var db = journal.CreateDbContext();
-        await db.Database.EnsureCreatedAsync();
-        db.Users.AddRange(new ApplicationUser { Id = Alice, UserName = Alice }, new ApplicationUser { Id = Bob, UserName = Bob });
-        await db.SaveChangesAsync();
-        return journal;
+        var journal = new SqlServerJournal(server);
+        try
+        {
+            await using var db = journal.CreateDbContext();
+            await db.Database.MigrateAsync();
+            db.Users.AddRange(new ApplicationUser { Id = Alice, UserName = Alice }, new ApplicationUser { Id = Bob, UserName = Bob });
+            await db.SaveChangesAsync();
+            return journal;
+        }
+        catch
+        {
+            await journal.DisposeAsync();
+            throw;
+        }
     }
 
     public static ActivityEdit Edit(DateTimeOffset? start = null, DateTimeOffset? end = null, IReadOnlyList<Guid>? tags = null,
@@ -43,9 +54,13 @@ internal sealed class SqliteJournal : IAsyncDisposable, IDbContextFactory<Applic
 
     public async ValueTask DisposeAsync()
     {
-        // These exact files belong to this fixture; no recursive or shared-directory cleanup.
-        foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" }) File.Delete(DatabasePath + suffix);
-        await applicationServices.DisposeAsync();
+        try
+        {
+            // Only this fixture's generated database on the disposable container is deleted.
+            await using var db = CreateDbContext();
+            await db.Database.EnsureDeletedAsync();
+        }
+        finally { await applicationServices.DisposeAsync(); }
     }
 
     private sealed class TestUser(string id) : ICurrentUser
