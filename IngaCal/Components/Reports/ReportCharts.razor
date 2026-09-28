@@ -1,7 +1,34 @@
 @using BlazorExpress.ChartJS
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 <div class="row g-4 mb-4">
-    <div class="col-lg-6"><section class="surface-card p-4 h-100"><p class="eyebrow">THE BREAKDOWN</p><h2>Hours by tag</h2><p class="text-body-secondary small">Each tag receives the activity's full duration.</p><div class="chart-region" role="img" aria-label="Hours by tag bar chart. Exact values are in the tag totals table below."><BarChart @ref="bars" Height="300" /></div></section></div>
+    <div class="col-lg-6"><section class="surface-card p-4 h-100"><p class="eyebrow">THE BREAKDOWN</p><h2>Hours by tag</h2><p class="text-body-secondary small">Each tag receives the activity's full duration. Percentages use total logged time and can add up to more than 100%.</p><div @ref="barRegion" class="chart-region" style="height: @(ChartHeight)px" role="img" aria-label="Hours by tag bar chart with duration and percentage of total logged time on each bar. Exact values are in the tag totals table below."><BarChart @ref="bars" Height="ChartHeight" /></div></section></div>
     <div class="col-lg-6"><section class="surface-card p-4 h-100"><p class="eyebrow">THE RHYTHM</p><h2>Your time, over time</h2><p class="text-body-secondary small">@(Grouping == ReportGrouping.Daily ? "Daily" : "Weekly") logged hours, counted once per activity.</p><div class="chart-region" role="img" aria-label="Logged hours trend chart. Exact values are in the trend table below."><LineChart @ref="line" Height="300" /></div></section></div>
+    <div class="col-12">
+        <section class="surface-card p-4">
+            <p class="eyebrow">THE BIGGER PICTURE</p>
+            <h2>Tag distribution</h2>
+            <p class="text-body-secondary small">Percentages use the combined tag totals, including untagged time. Activities with multiple tags count in each assigned tag.</p>
+            <div class="row g-4 align-items-center">
+                <div class="col-md-6">
+                    <div @ref="pieRegion" class="chart-region" style="height: @(ChartHeight)px" role="img" aria-label="Tag distribution pie chart with duration and percentage on each slice. Slices represent tag-counted hours, not unique logged time. Exact values are in the adjacent legend and tag totals table below."><PieChart @ref="pie" Height="ChartHeight" /></div>
+                </div>
+                <div class="col-md-6">
+                    <ul class="list-unstyled mb-0" aria-label="Pie chart legend">
+                        @foreach (var tag in Data.Tags) {
+                            <li @key="tag.Id" class="d-flex justify-content-between align-items-baseline gap-3 py-2 border-bottom">
+                                <span class="tag-badge text-break"><span class="tag-dot" style="background-color: @tag.Color" aria-hidden="true"></span>@tag.Name</span>
+                                <span class="d-flex align-items-baseline gap-2 small text-nowrap">
+                                    <span class="tabular">@DurationText.Format(tag.Minutes)</span>
+                                    <span class="pie-percentage rounded-pill bg-body-secondary text-body px-2 py-1 fw-semibold">@PiePercentage(tag.Minutes)</span>
+                                </span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </div>
 </div>
 @code {
     [Parameter, EditorRequired] public ReportDto Data { get; set; } = default!;
@@ -9,8 +36,14 @@
     [Parameter] public string Theme { get; set; } = "light";
     private BarChart bars = default!;
     private LineChart line = default!;
+    private PieChart pie = default!;
     private bool initialized, dirty;
-    protected override void OnParametersSet() => dirty = true;
+    private ElementReference barRegion, pieRegion;
+    private ReportChartLabelsInterop? labels;
+    private int ChartHeight => Math.Max(300, Data.Tags.Count * 44 + 40);
+    private double tagTotalMinutes;
+    private string PiePercentage(double minutes) => $"{(tagTotalMinutes > 0 ? 100 * minutes / tagTotalMinutes : 0):0.#}%";
+    protected override void OnParametersSet() { tagTotalMinutes = Data.Tags.Sum(x => x.Minutes); dirty = true; }
     protected override async Task OnAfterRenderAsync(bool firstRender) {
         if (!dirty) return;
         dirty = false;
@@ -22,11 +55,22 @@
         var lineData = new ChartData { Labels = Data.Trend.Select(x => x.Date.ToString("MMM d")).ToList(), Datasets = [new LineChartDataset {
             Label = "Logged hours", Data = Data.Trend.Select(x => (double?)(x.Minutes / 60)).ToList(), BorderColor = Theme == "dark" ? "#84cbae" : "#287658", BackgroundColor = "#287658", BorderWidth = 2, Tension = .25
         }] };
+        var pieData = new ChartData { Labels = Data.Tags.Select(x => $"{x.Name} ({PiePercentage(x.Minutes)})").ToList(), Datasets = [new PieChartDataset {
+            Label = "Hours", Data = Data.Tags.Select(x => (double?)(x.Minutes / 60)).ToList(), BackgroundColor = Data.Tags.Select(x => x.Color).ToList(),
+            BorderColor = [Theme == "dark" ? "#202c25" : "#ffffff"], BorderWidth = [2]
+        }] };
         var barOptions = new BarChartOptions { Responsive = true, MaintainAspectRatio = false, IndexAxis = "y", Scales = scales,
             Animation = new() { Duration = 0 }, Plugins = new() { Legend = new() { Display = false } } };
         var lineOptions = new LineChartOptions { Responsive = true, MaintainAspectRatio = false, Scales = scales,
             Animation = new() { Duration = 0 }, Plugins = new() { Legend = new() { Display = false } } };
-        if (initialized) { await bars.UpdateAsync(barData, barOptions); await line.UpdateAsync(lineData, lineOptions); }
-        else { await bars.InitializeAsync(barData, barOptions); await line.InitializeAsync(lineData, lineOptions); initialized = true; }
+        var pieOptions = new PieChartOptions { Responsive = true, MaintainAspectRatio = false,
+            Animation = new() { Duration = 0 }, Plugins = new() { Legend = new() { Display = false } } };
+        if (initialized) { await bars.UpdateAsync(barData, barOptions); await line.UpdateAsync(lineData, lineOptions); await pie.UpdateAsync(pieData, pieOptions); }
+        else { await bars.InitializeAsync(barData, barOptions); await line.InitializeAsync(lineData, lineOptions); await pie.InitializeAsync(pieData, pieOptions); initialized = true; }
+        labels ??= new(JS);
+        await labels.UpdateAsync(barRegion, pieRegion,
+            Data.Tags.Select(x => new ChartValueLabel(DurationText.Format(x.Minutes), $"{x.Percentage:0.#}%")).ToArray(),
+            Data.Tags.Select(x => new ChartValueLabel(DurationText.Format(x.Minutes), PiePercentage(x.Minutes))).ToArray(), Theme);
     }
+    public async ValueTask DisposeAsync() { if (labels is not null) await labels.DisposeAsync(); }
 }

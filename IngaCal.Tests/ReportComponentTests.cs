@@ -89,18 +89,86 @@ public sealed class ReportComponentTests
         using var culture = new InvariantCultureScope();
         await using var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule(ReportChartLabelsInterop.ModulePath).Mode = JSRuntimeMode.Loose;
         var report = ExampleReport();
         var charts = context.Render<ReportCharts>(parameters => parameters.Add(x => x.Data, report));
         var calls = context.JSInterop.Invocations.Where(x => x.Identifier.EndsWith(".initialize", StringComparison.Ordinal)).ToArray();
-        Assert.Equal(2, calls.Length);
+        Assert.Equal(3, calls.Length);
         var serialization = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var barData = JsonSerializer.SerializeToElement(Assert.Single(calls, x => x.Identifier.Contains(".bar.")).Arguments[2], serialization);
         var lineData = JsonSerializer.SerializeToElement(Assert.Single(calls, x => x.Identifier.Contains(".line.")).Arguments[2], serialization);
+        var pieData = JsonSerializer.SerializeToElement(Assert.Single(calls, x => x.Identifier.Contains(".pie.")).Arguments[2], serialization);
         Assert.Equal(new[] { "Learning", "Work" }, barData.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
         Assert.Equal(new double[] { .5, 1.5 }, barData.GetProperty("datasets")[0].GetProperty("data").EnumerateArray().Select(x => x.GetDouble()));
         Assert.Equal(new double[] { 1.5, 0, .5 }, lineData.GetProperty("datasets")[0].GetProperty("data").EnumerateArray().Select(x => x.GetDouble()));
         Assert.Equal(new[] { "Sep 21", "Sep 22", "Sep 23" }, lineData.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
-        Assert.Equal(2, charts.FindAll("[role=img][aria-label]").Count);
+        Assert.Equal(new[] { "Learning (25%)", "Work (75%)" }, pieData.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(new double[] { .5, 1.5 }, pieData.GetProperty("datasets")[0].GetProperty("data").EnumerateArray().Select(x => x.GetDouble()));
+        Assert.Equal(new[] { "#abcdef", "#123456" }, pieData.GetProperty("datasets")[0].GetProperty("backgroundColor").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(new[] { "30m", "1h 30m" }, charts.FindAll("[aria-label='Pie chart legend'] li .tabular").Select(x => x.TextContent));
+        Assert.Equal(new[] { "25%", "75%" }, charts.FindAll(".pie-percentage").Select(x => x.TextContent));
+        Assert.Equal(3, charts.FindAll("[role=img][aria-label]").Count);
+    }
+
+    [Fact]
+    public async Task PieChart_MultiTagAndUntaggedTotals_UpdateWithFiltersAndTheme()
+    {
+        using var culture = new InvariantCultureScope();
+        await using var context = new BunitContext();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var labelModule = context.JSInterop.SetupModule(ReportChartLabelsInterop.ModulePath);
+        labelModule.Mode = JSRuntimeMode.Loose;
+        var report = new ReportDto(75, 75, 30, 2,
+            [new(Guid.NewGuid(), "Work", "#123456", 45, 1, 60), new(Guid.NewGuid(), "Focus", "#abcdef", 45, 1, 60), new(Guid.Empty, "Untagged", "#8993a4", 30, 1, 40)],
+            [new(new(2026, 9, 28), 75)]);
+        var charts = context.Render<ReportCharts>(parameters => parameters.Add(x => x.Data, report));
+        var serialization = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var initialization = Assert.Single(context.JSInterop.Invocations, x => x.Identifier.EndsWith(".pie.initialize", StringComparison.Ordinal));
+        Assert.Equal("pie", initialization.Arguments[1]);
+        var initialData = JsonSerializer.SerializeToElement(initialization.Arguments[2], serialization);
+        Assert.Equal(new[] { "Work (37.5%)", "Focus (37.5%)", "Untagged (25%)" }, initialData.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(new[] { "37.5%", "37.5%", "25%" }, charts.FindAll(".pie-percentage").Select(x => x.TextContent));
+        Assert.Equal(new double[] { .75, .75, .5 }, initialData.GetProperty("datasets")[0].GetProperty("data").EnumerateArray().Select(x => x.GetDouble()));
+        Assert.Equal("#ffffff", initialData.GetProperty("datasets")[0].GetProperty("borderColor")[0].GetString());
+        Assert.Contains("Activities with multiple tags count in each assigned tag.", charts.Markup);
+        var initialLabels = labelModule.VerifyInvoke("updateLabels");
+        Assert.Equal(new[] { new ChartValueLabel("45m", "60%"), new ChartValueLabel("45m", "60%"), new ChartValueLabel("30m", "40%") }, Assert.IsType<ChartValueLabel[]>(initialLabels.Arguments[2]));
+        Assert.Equal(new[] { new ChartValueLabel("45m", "37.5%"), new ChartValueLabel("45m", "37.5%"), new ChartValueLabel("30m", "25%") }, Assert.IsType<ChartValueLabel[]>(initialLabels.Arguments[3]));
+
+        var untaggedReport = new ReportDto(30, 30, 30, 1, [report.Tags[2] with { Percentage = 100 }], [new(new(2026, 9, 28), 30)]);
+        charts.Render(parameters => parameters.Add(x => x.Data, untaggedReport).Add(x => x.Theme, "dark"));
+        var update = Assert.Single(context.JSInterop.Invocations, x => x.Identifier.EndsWith(".pie.update", StringComparison.Ordinal));
+        var updatedData = JsonSerializer.SerializeToElement(update.Arguments[2], serialization);
+        Assert.Equal(new[] { "Untagged (100%)" }, updatedData.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal("100%", Assert.Single(charts.FindAll(".pie-percentage")).TextContent);
+        Assert.Equal(new double[] { .5 }, updatedData.GetProperty("datasets")[0].GetProperty("data").EnumerateArray().Select(x => x.GetDouble()));
+        Assert.Equal("#8993a4", updatedData.GetProperty("datasets")[0].GetProperty("backgroundColor")[0].GetString());
+        Assert.Equal("#202c25", updatedData.GetProperty("datasets")[0].GetProperty("borderColor")[0].GetString());
+        var legendItem = Assert.Single(charts.FindAll("[aria-label='Pie chart legend'] li"));
+        Assert.Contains("Untagged", legendItem.TextContent);
+        Assert.Contains("30m", legendItem.TextContent);
+        Assert.Single(context.JSInterop.Invocations, x => x.Identifier.EndsWith(".pie.initialize", StringComparison.Ordinal));
+        var updatedLabels = labelModule.Invocations.Last(x => x.Identifier == "updateLabels");
+        Assert.Equal(new[] { new ChartValueLabel("30m", "100%") }, Assert.IsType<ChartValueLabel[]>(updatedLabels.Arguments[2]));
+        Assert.Equal(new[] { new ChartValueLabel("30m", "100%") }, Assert.IsType<ChartValueLabel[]>(updatedLabels.Arguments[3]));
+        Assert.Equal("dark", updatedLabels.Arguments[4]);
+        await context.DisposeComponentsAsync();
+        labelModule.VerifyInvoke("disposeLabels");
+    }
+
+    [Fact]
+    public async Task PieChart_ZeroTotal_ShowsZeroPercentWithoutInvalidValues()
+    {
+        await using var context = new BunitContext();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule(ReportChartLabelsInterop.ModulePath).Mode = JSRuntimeMode.Loose;
+        var report = new ReportDto(0, 0, 0, 0, [new(Guid.Empty, "Untagged", "#8993a4", 0, 0, 0)], []);
+        var charts = context.Render<ReportCharts>(parameters => parameters.Add(x => x.Data, report));
+        Assert.Equal("0%", charts.Find(".pie-percentage").TextContent);
+        var call = Assert.Single(context.JSInterop.Invocations, x => x.Identifier.EndsWith(".pie.initialize", StringComparison.Ordinal));
+        var data = JsonSerializer.SerializeToElement(call.Arguments[2], new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("Untagged (0%)", data.GetProperty("labels")[0].GetString());
+        Assert.Equal(0, data.GetProperty("datasets")[0].GetProperty("data")[0].GetDouble());
     }
 
     private static ReportDto ExampleReport() => new(120, 40, 0, 3,

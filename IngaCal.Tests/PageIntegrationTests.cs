@@ -47,6 +47,7 @@ public sealed class PageIntegrationTests
         await using var journal = await SqliteJournal.CreateAsync();
         await using var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule(ReportChartLabelsInterop.ModulePath).Mode = JSRuntimeMode.Loose;
         var browser = new BrowserContext(context.JSInterop.JSRuntime);
         await browser.BrowserChanged(new("Asia/Kathmandu", "dark"));
         var start = JournalTime.Resolve(browser.Today.ToDateTime(new TimeOnly(9, 0)), browser.TimeZoneId);

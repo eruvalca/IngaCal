@@ -50,6 +50,18 @@ The remaining tests cover current-user authentication claims, tag validation, ca
 
 ## Browser and deployment checks
 
+### Pie chart extension
+
+The reports pie chart is covered by `ReportComponentTests.Charts_UseSameReportValuesAsTables_ConvertingMinutesToHours` and `ReportComponentTests.PieChart_MultiTagAndUntaggedTotals_UpdateWithFiltersAndTheme`. These verify slice hours, tag colors, the duration/percentage legend, percentage hover labels, multi-tag counting, untagged-only updates, and theme changes without reinitializing the chart. The multi-tag case distinguishes percentages of combined tag totals (37.5%, 37.5%, 25%) from percentages of unique logged time (60%, 60%, 40%). `ReportComponentTests.PieChart_ZeroTotal_ShowsZeroPercentWithoutInvalidValues` checks the zero-total guard.
+
+Focused validation: `dotnet test IngaCal.Tests/IngaCal.Tests.csproj --no-restore -c Release --filter "FullyQualifiedName~ReportComponentTests|FullyQualifiedName~PageIntegrationTests" --verbosity minimal` — 8 passed, 0 failed, 0 skipped. Release publish also succeeded. Browser checks against the isolated database verified desktop and 390px phone layouts, light/dark themes, an untagged-only single slice, and chart removal/recreation when switching to an empty period and back.
+
+### Permanent chart labels
+
+`ReportComponentTests.PieChart_MultiTagAndUntaggedTotals_UpdateWithFiltersAndTheme` also verifies that on-chart labels carry the correct duration and percentage for each chart's denominator, refresh with filters/themes, and release the JavaScript module on disposal. The focused .NET command above passes all 8 cases with these checks.
+
+`node --test scripts/tests/report-chart-labels.test.mjs` — 3 passed, 0 failed. The cases are `bar durations and percentages remain visible for short bars, update once, and clean up`, `pie draws all durations and percentages directly inside ordinary slices`, and `small pie slices use nonoverlapping callouts within phone chart bounds and respond to resize`. These run the actual drawing plugin with measured canvas/geometry substitutes. Browser checks additionally verified rendered labels on both charts in light/dark themes, on a 390px phone layout, after an untagged-only filter, and after switching to an empty report and back.
+
 ### Implementation verification — September 28, 2026
 
 Verified in the Codex browser against an isolated SQLite database, then repeated startup/save checks using the published Production build:
