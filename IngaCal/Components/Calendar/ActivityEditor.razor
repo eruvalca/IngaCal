@@ -1,0 +1,43 @@
+@inject BrowserContext Browser
+<dialog class="activity-dialog" @ref="dialog" aria-labelledby="editor-title">
+    <EditForm Model="model" OnValidSubmit="Submit" FormName="activity">
+        <DataAnnotationsValidator />
+        <div class="editor-heading">
+            <div><p class="eyebrow mb-1">YOUR TIME JOURNAL</p><h2 id="editor-title">@(model.Id is null ? "Add an activity" : "Edit activity")</h2></div>
+            <button type="button" class="btn-close" aria-label="Close editor" disabled="@Busy" @onclick="Cancel"></button>
+        </div>
+        <div class="editor-body">
+            @if (Error is not null) { <div class="alert alert-danger" role="alert">@Error</div> }
+            @if (localError is not null) { <div class="alert alert-danger" role="alert">@localError</div> }
+            <ValidationSummary class="text-danger" />
+            <div class="mb-3"><label for="activity-title" class="form-label">What did you do?</label><InputText id="activity-title" class="form-control form-control-lg" placeholder="Give this time a name" maxlength="200" @bind-Value="model.Title" /></div>
+            <div class="mb-4"><label for="activity-description" class="form-label">A few details <span class="text-body-secondary fw-normal">· optional if you added a title</span></label><InputTextArea id="activity-description" class="form-control" rows="3" maxlength="4000" placeholder="A little context for your future self…" @bind-Value="model.Description" /></div>
+            <div class="row g-3">
+                <div class="col-sm-6"><label class="form-label" for="activity-start">Start</label><InputDate id="activity-start" Type="InputDateType.DateTimeLocal" class="form-control" step="60" @bind-Value="model.Start" />
+                    @if (JournalTime.Offsets(model.Start, Browser.TimeZoneId).Length > 0) { <label class="small mt-2"><InputCheckbox @bind-Value="model.StartLater" /> Use the second occurrence after clocks go back</label> }
+                </div>
+                <div class="col-sm-6"><label class="form-label" for="activity-end">End</label><InputDate id="activity-end" Type="InputDateType.DateTimeLocal" class="form-control" step="60" @bind-Value="model.End" />
+                    @if (JournalTime.Offsets(model.End, Browser.TimeZoneId).Length > 0) { <label class="small mt-2"><InputCheckbox @bind-Value="model.EndLater" /> Use the second occurrence after clocks go back</label> }
+                </div>
+            </div>
+            <div class="duration-preview"><i class="bi bi-clock me-2" aria-hidden="true"></i>@Preview <span class="text-body-secondary ms-2">· @Browser.TimeZoneId</span></div>
+            <TagPicker Tags="Tags" @bind-SelectedIds="selectedIds" CreateTag="CreateTag" />
+            @if (confirmDelete)
+            {
+                <div class="alert alert-warning mt-4 mb-0">Delete this activity? This cannot be undone.
+                    <div class="mt-2"><button type="button" class="btn btn-danger btn-sm me-2" disabled="@Busy" @onclick="Delete">Delete activity</button><button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => confirmDelete = false">Keep it</button></div>
+                </div>
+            }
+        </div>
+        <div class="editor-actions">
+            <div class="d-flex gap-1">
+                @if (model.Id is not null)
+                {
+                    <button class="btn btn-outline-secondary" type="button" disabled="@Busy" @onclick="Duplicate"><i class="bi bi-copy me-1" aria-hidden="true"></i>Copy</button>
+                    <button class="btn btn-link text-danger" type="button" disabled="@Busy" @onclick="() => confirmDelete = true">Delete</button>
+                }
+            </div>
+            <div class="d-flex gap-2"><button class="btn btn-outline-secondary" type="button" disabled="@Busy" @onclick="Cancel">Cancel</button><button class="btn btn-primary" type="submit" disabled="@Busy">@(Busy ? "Saving…" : "Save activity")</button></div>
+        </div>
+    </EditForm>
+</dialog>

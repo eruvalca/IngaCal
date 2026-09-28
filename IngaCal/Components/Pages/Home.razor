@@ -1,7 +1,105 @@
-﻿@page "/"
-
-<PageTitle>Home</PageTitle>
-
-<h1>Hello, world!</h1>
-
-Welcome to your new app.
+@page "/"
+@attribute [Authorize]
+@inherits JournalPageBase
+@inject IActivityService ActivityService
+@inject ITagService TagService
+<PageTitle>Your calendar · IngaCal</PageTitle>
+<div class="page-heading">
+    <div><p class="eyebrow">THE EVERYDAY, SEEN CLEARLY</p><h1>Your calendar<span class="heading-dot">.</span></h1><p class="page-subtitle">A place for everything your day holds.</p></div>
+    <button class="btn btn-primary btn-lg" disabled="@(!Browser.IsReady)" @onclick="Add"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>Add activity</button>
+</div>
+@if (Error is not null && draft is null) { <div class="alert alert-danger" role="alert">@Error <button class="btn btn-sm btn-outline-danger ms-2" @onclick="() => RunAsync(LoadAsync)">Retry</button></div> }
+@if (!Browser.IsReady) { <div class="loading-panel" role="status"><div class="spinner-border spinner-border-sm me-2"></div>Getting your calendar ready…</div> }
+else
+{
+    <div class="calendar-overview">
+        <div><span class="overview-label">IN THIS VIEW</span><strong>@DurationText.Format(items.Sum(x => (Min(x.End, range?.End ?? x.End) - Max(x.Start, range?.Start ?? x.Start)).TotalMinutes))</strong><span class="text-body-secondary">recorded across @items.Count @(items.Count == 1 ? "activity" : "activities")</span></div>
+        <div class="calendar-hint"><i class="bi bi-mouse me-2" aria-hidden="true"></i>Drag to make room. Click to add detail.<span>15-minute snapping · exact times in the editor</span></div>
+    </div>
+    <section class="surface-card calendar-card">
+        <CalendarToolbar Date="date" Today="Browser.Today" View="@view" Navigate="Navigate" />
+        <CalendarSurface Date="date" View="@view" TimeZoneId="@Browser.TimeZoneId" Activities="items" RangeChanged="LoadRange" Selected="Select" ActivitySelected="Edit" ActivityChanged="Move" />
+    </section>
+    <details class="surface-card mt-4 activity-list">
+        <summary>Activities in this view <span class="text-body-secondary">(@items.Count)</span></summary>
+        @if (items.Count == 0) { <p class="text-body-secondary mt-3">Your time journal starts here. Add an activity above or select a time on the calendar.</p> }
+        @foreach (var item in items)
+        {
+            <button @key="item.Id" class="activity-list-row" @onclick="() => Edit(item.Id)"><span>@item.DisplayTitle</span><span class="text-body-secondary">@JournalTime.Local(item.Start, Browser.TimeZoneId).ToString("MMM d, h:mm tt") · @DurationText.Format(item.Minutes)</span></button>
+        }
+    </details>
+}
+@if (draft is not null)
+{
+    <ActivityEditor @key="draft" Draft="draft" Tags="tags" Error="@Error" Busy="Busy" Save="Save" Cancel="Close" Delete="Delete" CreateTag="CreateTag" />
+}
+@code {
+    private DateOnly date;
+    private string view = "timeGridDay";
+    private string loadedZone = "";
+    private IReadOnlyList<ActivityDto> items = [];
+    private IReadOnlyList<TagDto> tags = [];
+    private CalendarRange? range;
+    private ActivityDraft? draft;
+    private int loadSequence;
+    protected override async Task LoadAsync()
+    {
+        if (date == default) date = Browser.Today;
+        tags = await TagService.ListAsync(Lifetime.Token);
+        if (loadedZone != Browser.TimeZoneId) { loadedZone = Browser.TimeZoneId; draft = null; }
+        if (range is not null) await LoadRange(range);
+    }
+    private async Task LoadRange(CalendarRange value)
+    {
+        range = value;
+        var sequence = ++loadSequence;
+        await RunAsync(async () => {
+            var loaded = await ActivityService.ListAsync(value.Start, value.End, Lifetime.Token);
+            if (sequence == loadSequence) items = loaded;
+        });
+    }
+    private Task Navigate(CalendarNavigation navigation) { date = navigation.Date; view = navigation.View; return Task.CompletedTask; }
+    private Task Add() => RunAsync(() =>
+    {
+        var now = JournalTime.Local(DateTimeOffset.UtcNow, Browser.TimeZoneId);
+        var time = new TimeOnly(now.Hour, now.Minute / 15 * 15);
+        var start = JournalTime.Resolve(date.ToDateTime(time), Browser.TimeZoneId);
+        draft = new(null, start, start.AddMinutes(30)); Error = null;
+        return Task.CompletedTask;
+    });
+    private void Select(CalendarSelection selection) { draft = new(null, selection.Start, selection.End); Error = null; }
+    private void Edit(Guid id)
+    {
+        var item = items.FirstOrDefault(x => x.Id == id);
+        if (item is not null) { draft = new(item, item.Start, item.End); Error = null; }
+    }
+    private async Task Close() { draft = null; await RunAsync(LoadAsync); }
+    private async Task Save(ActivityEdit edit)
+    {
+        Busy = true;
+        await RunAsync(async () => { await ActivityService.SaveAsync(edit, Lifetime.Token); draft = null; await LoadAsync(); });
+        Busy = false;
+    }
+    private async Task Delete()
+    {
+        if (draft?.Activity is not { } item) return;
+        Busy = true;
+        await RunAsync(async () => { await ActivityService.DeleteAsync(item.Id, item.Version, Lifetime.Token); draft = null; await LoadAsync(); });
+        Busy = false;
+    }
+    private async Task CreateTag(NewTagRequest request) => await RunAsync(async () => {
+        request.Created = await TagService.SaveAsync(new(null, request.Name, request.Color), Lifetime.Token);
+        tags = await TagService.ListAsync(Lifetime.Token);
+    });
+    private async Task Move(CalendarChange change)
+    {
+        var item = items.FirstOrDefault(x => x.Id == change.Id);
+        if (item is null) return;
+        await RunAsync(async () => {
+            await ActivityService.SaveAsync(new(item.Id, item.Title, item.Description, change.Start, change.End, item.Tags.Select(x => x.Id).ToArray(), item.Version), Lifetime.Token);
+            change.Accepted = true; await LoadAsync();
+        });
+    }
+    private static DateTimeOffset Min(DateTimeOffset a, DateTimeOffset b) => a < b ? a : b;
+    private static DateTimeOffset Max(DateTimeOffset a, DateTimeOffset b) => a > b ? a : b;
+}

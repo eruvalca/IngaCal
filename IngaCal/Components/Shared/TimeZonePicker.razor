@@ -1,0 +1,15 @@
+@inject BrowserContext Browser
+<div class="d-flex flex-wrap gap-2 align-items-end">
+    <div><label class="form-label" for="manual-zone">Time zone</label>
+        <input id="manual-zone" class="form-control" list="time-zones" @bind="zone" placeholder="America/Chicago" />
+        <datalist id="time-zones">@foreach (var item in TimeZoneInfo.GetSystemTimeZones()) { <option value="@(TimeZoneInfo.TryConvertWindowsIdToIanaId(item.Id, out var iana) ? iana : item.Id)">@item.DisplayName</option> }</datalist>
+    </div>
+    <button class="btn btn-primary" @onclick="Apply">Use time zone</button>
+    <button class="btn btn-outline-secondary" @onclick="Browser.FollowDeviceAsync">Use device</button>
+</div>
+@if (error is not null) { <p class="text-danger mt-2" role="alert">@error</p> }
+@code {
+    private string zone = "";
+    private string? error;
+    private async Task Apply() { try { await Browser.SetZoneAsync(zone.Trim()); error = null; } catch (JournalException e) { error = e.Message; } }
+}

@@ -1,0 +1,32 @@
+@using BlazorExpress.ChartJS
+<div class="row g-4 mb-4">
+    <div class="col-lg-6"><section class="surface-card p-4 h-100"><p class="eyebrow">THE BREAKDOWN</p><h2>Hours by tag</h2><p class="text-body-secondary small">Each tag receives the activity's full duration.</p><div class="chart-region" role="img" aria-label="Hours by tag bar chart. Exact values are in the tag totals table below."><BarChart @ref="bars" Height="300" /></div></section></div>
+    <div class="col-lg-6"><section class="surface-card p-4 h-100"><p class="eyebrow">THE RHYTHM</p><h2>Your time, over time</h2><p class="text-body-secondary small">@(Grouping == ReportGrouping.Daily ? "Daily" : "Weekly") logged hours, counted once per activity.</p><div class="chart-region" role="img" aria-label="Logged hours trend chart. Exact values are in the trend table below."><LineChart @ref="line" Height="300" /></div></section></div>
+</div>
+@code {
+    [Parameter, EditorRequired] public ReportDto Data { get; set; } = default!;
+    [Parameter] public ReportGrouping Grouping { get; set; }
+    [Parameter] public string Theme { get; set; } = "light";
+    private BarChart bars = default!;
+    private LineChart line = default!;
+    private bool initialized, dirty;
+    protected override void OnParametersSet() => dirty = true;
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (!dirty) return;
+        dirty = false;
+        var foreground = Theme == "dark" ? "#d9e5df" : "#52635c";
+        var scales = new Scales { X = new ChartAxes { BeginAtZero = true, Ticks = new() { Color = foreground } }, Y = new ChartAxes { BeginAtZero = true, Ticks = new() { Color = foreground } } };
+        var barData = new ChartData { Labels = Data.Tags.Select(x => x.Name).ToList(), Datasets = [new BarChartDataset {
+            Label = "Hours", Data = Data.Tags.Select(x => (double?)(x.Minutes / 60)).ToList(), BackgroundColor = Data.Tags.Select(x => x.Color).ToList(), BorderRadius = [5]
+        }] };
+        var lineData = new ChartData { Labels = Data.Trend.Select(x => x.Date.ToString("MMM d")).ToList(), Datasets = [new LineChartDataset {
+            Label = "Logged hours", Data = Data.Trend.Select(x => (double?)(x.Minutes / 60)).ToList(), BorderColor = Theme == "dark" ? "#84cbae" : "#287658", BackgroundColor = "#287658", BorderWidth = 2, Tension = .25
+        }] };
+        var barOptions = new BarChartOptions { Responsive = true, MaintainAspectRatio = false, IndexAxis = "y", Scales = scales,
+            Animation = new() { Duration = 0 }, Plugins = new() { Legend = new() { Display = false } } };
+        var lineOptions = new LineChartOptions { Responsive = true, MaintainAspectRatio = false, Scales = scales,
+            Animation = new() { Duration = 0 }, Plugins = new() { Legend = new() { Display = false } } };
+        if (initialized) { await bars.UpdateAsync(barData, barOptions); await line.UpdateAsync(lineData, lineOptions); }
+        else { await bars.InitializeAsync(barData, barOptions); await line.InitializeAsync(lineData, lineOptions); initialized = true; }
+    }
+}

@@ -1,0 +1,49 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+<div class="calendar-surface" @ref="element" aria-label="Activity calendar"></div>
+@code {
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public string View { get; set; } = "timeGridDay";
+    [Parameter] public string TimeZoneId { get; set; } = "UTC";
+    [Parameter] public IReadOnlyList<ActivityDto> Activities { get; set; } = [];
+    [Parameter] public EventCallback<CalendarRange> RangeChanged { get; set; }
+    [Parameter] public EventCallback<CalendarSelection> Selected { get; set; }
+    [Parameter] public EventCallback<Guid> ActivitySelected { get; set; }
+    [Parameter] public EventCallback<CalendarChange> ActivityChanged { get; set; }
+    private ElementReference element;
+    private CalendarInterop? interop;
+    private DotNetObjectReference<CalendarSurface>? reference;
+    private bool dirty = true;
+    protected override void OnParametersSet() => dirty = true;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!dirty) return;
+        dirty = false;
+        var state = new {
+            date = Date.ToString("yyyy-MM-dd"), view = View, timeZone = TimeZoneId,
+            events = Activities.Select(x => new { id = x.Id, title = x.DisplayTitle, start = x.Start.ToString("O"), end = x.End.ToString("O"), allDay = false,
+                color = x.Tags.FirstOrDefault()?.Color ?? "#54776d",
+                extendedProps = new { description = x.Description, tags = string.Join(", ", x.Tags.Select(t => t.Name)) } }).ToArray()
+        };
+        if (firstRender)
+        {
+            interop = new(JS);
+            reference = DotNetObjectReference.Create(this);
+            await interop.InitializeAsync(element, reference, state);
+        }
+        else if (interop is not null) await interop.UpdateAsync(element, state);
+    }
+    [JSInvokable] public Task OnRange(CalendarRange range) => InvokeAsync(() => RangeChanged.InvokeAsync(range));
+    [JSInvokable] public Task OnSelect(CalendarSelection selection) => InvokeAsync(() => Selected.InvokeAsync(selection));
+    [JSInvokable] public Task OnActivity(Guid id) => InvokeAsync(() => ActivitySelected.InvokeAsync(id));
+    [JSInvokable] public async Task<bool> OnChange(CalendarChange change)
+    {
+        await InvokeAsync(() => ActivityChanged.InvokeAsync(change));
+        return change.Accepted;
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (interop is not null) await interop.DisposeAsync();
+        reference?.Dispose();
+    }
+}

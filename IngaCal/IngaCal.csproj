@@ -9,12 +9,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Update="Data\app.db" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Remove="**\*.db;**\*.db-*;**\*.sqlite;**\*.sqlite-*;Data\keys\**;Data\backups\**" />
+    <None Remove="**\*.db;**\*.db-*;**\*.sqlite;**\*.sqlite-*;Data\keys\**;Data\backups\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\IngaCal.Client\IngaCal.Client.csproj" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.12" />
+    <PackageReference Include="BlazorExpress.ChartJS" Version="1.2.4" />
     <PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="10.0.12" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />

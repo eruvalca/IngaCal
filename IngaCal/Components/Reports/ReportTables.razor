@@ -1,0 +1,28 @@
+<section class="surface-card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3"><h2 class="mb-0">A closer look</h2><span class="text-body-secondary small">@Data.Tags.Count categories</span></div>
+    <div class="table-responsive">
+        <table class="table align-middle"><caption>Time per tag. Percentages use total logged time and can add up to more than 100% when activities have multiple tags.</caption>
+            <thead><tr>
+                @foreach (var column in columns) { <th scope="col" aria-sort="@(sort == column ? descending ? "descending" : "ascending" : "none")"><button class="table-sort" @onclick="() => Sort(column)">@column @if (sort == column) { <span aria-hidden="true">@(descending ? "↓" : "↑")</span> }</button></th> }
+            </tr></thead>
+            <tbody>@foreach (var tag in Ordered) { <tr><th scope="row"><span class="tag-dot me-2" style="background-color: @tag.Color"></span>@tag.Name</th><td class="tabular">@DurationText.Format(tag.Minutes)</td><td class="tabular">@tag.ActivityCount</td><td class="tabular">@tag.Percentage.ToString("0.#")%</td></tr> }</tbody>
+        </table>
+    </div>
+    <details class="mt-2"><summary>View @(Grouping == ReportGrouping.Daily ? "daily" : "weekly") trend values</summary>
+        <div class="table-responsive mt-3"><table class="table"><caption>Exact durations used by the trend chart. Weekly rows start on Monday and include only dates in the selected range.</caption><thead><tr><th scope="col">@(Grouping == ReportGrouping.Daily ? "Date" : "Week starting")</th><th scope="col">Logged time</th><th scope="col">Hours</th></tr></thead><tbody>@foreach (var point in Data.Trend) { <tr><th scope="row">@point.Date.ToString("ddd, MMM d, yyyy")</th><td>@DurationText.Format(point.Minutes)</td><td>@((point.Minutes / 60).ToString("0.####"))</td></tr> }</tbody></table></div>
+    </details>
+</section>
+@code {
+    [Parameter, EditorRequired] public ReportDto Data { get; set; } = default!;
+    [Parameter] public ReportGrouping Grouping { get; set; }
+    private readonly string[] columns = ["Tag", "Time", "Activities", "Share"];
+    private string sort = "Time";
+    private bool descending = true;
+    private IEnumerable<TagTotal> Ordered {
+        get {
+            Func<TagTotal, IComparable> key = sort switch { "Tag" => x => x.Name, "Activities" => x => x.ActivityCount, "Share" => x => x.Percentage, _ => x => x.Minutes };
+            return descending ? Data.Tags.OrderByDescending(key) : Data.Tags.OrderBy(key);
+        }
+    }
+    private void Sort(string column) { descending = sort == column ? !descending : column != "Tag"; sort = column; }
+}

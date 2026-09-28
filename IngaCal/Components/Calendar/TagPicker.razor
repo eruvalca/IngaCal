@@ -1,0 +1,41 @@
+<div class="tag-picker">
+    <label class="form-label" for="tag-search">Tags <span class="text-body-secondary fw-normal">· optional</span></label>
+    <input id="tag-search" class="form-control mb-2" placeholder="Find a tag…" @bind="search" @bind:event="oninput" />
+    <div class="d-flex flex-wrap gap-2">
+        @foreach (var tag in Tags.Where(x => (!x.IsArchived || SelectedIds.Contains(x.Id)) && x.Name.Contains(search, StringComparison.OrdinalIgnoreCase)))
+        {
+            <button @key="tag.Id" type="button" class="tag-choice @(SelectedIds.Contains(tag.Id) ? "selected" : "")" aria-pressed="@(SelectedIds.Contains(tag.Id) ? "true" : "false")" @onclick="() => Toggle(tag.Id)">
+                @if (SelectedIds.Contains(tag.Id)) { <i class="bi bi-check2" aria-hidden="true"></i> }<TagBadge Tag="tag" />
+            </button>
+        }
+        @if (Tags.Count == 0) { <span class="small text-body-secondary">Create your first tag below, or add tags later.</span> }
+    </div>
+    <details class="mt-3">
+        <summary class="small text-primary">Create a new tag</summary>
+        <div class="d-flex gap-2 mt-2">
+            <input aria-label="New tag name" class="form-control" maxlength="60" placeholder="e.g. Learning" @bind="name" @bind:event="oninput" />
+            <input aria-label="New tag color" class="form-control form-control-color" type="color" @bind="color" />
+            <button class="btn btn-outline-primary text-nowrap" type="button" disabled="@(creating || string.IsNullOrWhiteSpace(name))" @onclick="Create">Add tag</button>
+        </div>
+    </details>
+</div>
+@code {
+    [Parameter] public IReadOnlyList<TagDto> Tags { get; set; } = [];
+    [Parameter] public IReadOnlyList<Guid> SelectedIds { get; set; } = [];
+    [Parameter] public EventCallback<IReadOnlyList<Guid>> SelectedIdsChanged { get; set; }
+    [Parameter] public EventCallback<NewTagRequest> CreateTag { get; set; }
+    private string search = "", name = "", color = "#5470c6";
+    private bool creating;
+    private Task Toggle(Guid id) => SelectedIdsChanged.InvokeAsync(SelectedIds.Contains(id) ? SelectedIds.Where(x => x != id).ToArray() : [.. SelectedIds, id]);
+    private async Task Create()
+    {
+        creating = true;
+        try
+        {
+            var request = new NewTagRequest(name, color);
+            await CreateTag.InvokeAsync(request);
+            if (request.Created is not null) { await SelectedIdsChanged.InvokeAsync([.. SelectedIds, request.Created.Id]); name = ""; search = ""; }
+        }
+        finally { creating = false; }
+    }
+}

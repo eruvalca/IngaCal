@@ -1,0 +1,2 @@
+<span class="tag-badge"><span class="tag-dot" style="background-color: @Tag.Color" aria-hidden="true"></span>@Tag.Name@if (Tag.IsArchived) { <span class="text-body-secondary"> · archived</span> }</span>
+@code { [Parameter, EditorRequired] public TagDto Tag { get; set; } = default!; }

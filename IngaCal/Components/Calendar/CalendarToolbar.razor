@@ -1,0 +1,26 @@
+<div class="calendar-toolbar">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <div class="btn-group" role="group" aria-label="Date navigation">
+            <button class="btn btn-outline-secondary" @onclick="() => Move(-1)" aria-label="Previous period"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+            <button class="btn btn-outline-secondary" @onclick="() => Navigate.InvokeAsync(new(Today, View))">Today</button>
+            <button class="btn btn-outline-secondary" @onclick="() => Move(1)" aria-label="Next period"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+        </div>
+        <label class="visually-hidden" for="calendar-date">Go to date</label>
+        <input id="calendar-date" type="date" class="form-control date-jump" value="@Date.ToString("yyyy-MM-dd")" @onchange="DateChanged" />
+    </div>
+    <div class="btn-group view-switch" role="group" aria-label="Calendar view">
+        @foreach (var view in views)
+        {
+            <button class="btn @(View == view.Key ? "btn-primary" : "btn-outline-secondary")" aria-pressed="@(View == view.Key ? "true" : "false")" @onclick="() => Navigate.InvokeAsync(new(Date, view.Key))">@view.Value</button>
+        }
+    </div>
+</div>
+@code {
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public DateOnly Today { get; set; }
+    [Parameter] public string View { get; set; } = "timeGridDay";
+    [Parameter] public EventCallback<CalendarNavigation> Navigate { get; set; }
+    private readonly Dictionary<string, string> views = new() { ["timeGridDay"] = "Day", ["timeGridWeek"] = "Week", ["dayGridMonth"] = "Month" };
+    private Task Move(int direction) => Navigate.InvokeAsync(new(View == "dayGridMonth" ? Date.AddMonths(direction) : Date.AddDays(direction * (View == "timeGridWeek" ? 7 : 1)), View));
+    private Task DateChanged(ChangeEventArgs e) => DateOnly.TryParse(e.Value?.ToString(), out var date) ? Navigate.InvokeAsync(new(date, View)) : Task.CompletedTask;
+}

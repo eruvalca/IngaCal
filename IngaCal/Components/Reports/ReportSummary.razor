@@ -1,0 +1,6 @@
+<div class="row g-3 mb-4">
+    <div class="col-md-4"><section class="metric-card metric-primary"><span class="metric-label">TOTAL LOGGED</span><strong>@DurationText.Format(Data.TotalMinutes)</strong><span>@Data.ActivityCount @(Data.ActivityCount == 1 ? "activity" : "activities") in this period</span><i class="bi bi-clock-history" aria-hidden="true"></i></section></div>
+    <div class="col-md-4"><section class="metric-card"><span class="metric-label">DAILY AVERAGE</span><strong>@DurationText.Format(Data.AverageMinutes)</strong><span>Across every calendar day in the range</span><i class="bi bi-bar-chart-line" aria-hidden="true"></i></section></div>
+    <div class="col-md-4"><section class="metric-card"><span class="metric-label">UNTAGGED TIME</span><strong>@DurationText.Format(Data.UntaggedMinutes)</strong><span>A little room to add more context</span><i class="bi bi-tag" aria-hidden="true"></i></section></div>
+</div>
+@code { [Parameter, EditorRequired] public ReportDto Data { get; set; } = default!; }

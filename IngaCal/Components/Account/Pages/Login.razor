@@ -1,4 +1,4 @@
-﻿@page "/Account/Login"
+@page "/Account/Login"
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Authentication
@@ -13,14 +13,14 @@
 
 <PageTitle>Log in</PageTitle>
 
-<h1>Log in</h1>
+<p class="eyebrow">YOUR TIME, THOUGHTFULLY KEPT</p><h1>Welcome back.</h1>
 <div class="row">
     <div class="col-lg-6">
         <section>
             <StatusMessage Message="@errorMessage" />
             <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
                 <DataAnnotationsValidator />
-                <h2>Use a local account to log in.</h2>
+                <h2>Pick up where you left off.</h2>
                 <hr />
                 <ValidationSummary class="text-danger" role="alert" />
                 <div class="form-floating mb-3">
@@ -49,26 +49,16 @@
                 </div>
                 <hr />
                 <div>
-                    <p>
-                        <a href="Account/ForgotPassword">Forgot your password?</a>
-                    </p>
+
                     <p>
                         <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a>
                     </p>
-                    <p>
-                        <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
-                    </p>
+
                 </div>
             </EditForm>
         </section>
     </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to log in.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
-    </div>
+
 </div>
 
 @code {

@@ -1,24 +1,35 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <ResourcePreloader />
+    <script type="module" src="@Assets["Components/App.razor.js"]"></script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap-icons/bootstrap-icons.css"]" />
+    <link rel="stylesheet" href="@Assets["lib/fullcalendar/skeleton.css"]" />
+    <link rel="stylesheet" href="@Assets["lib/fullcalendar/bootstrap5.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["IngaCal.styles.css"]" />
     <ImportMap />
-    <link rel="icon" type="image/png" href="favicon.png" />
-    <HeadOutlet />
+    <link rel="icon" type="image/svg+xml" href="@Assets["favicon.svg"]" />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
-
 <body>
-    <Routes />
+    <Routes @rendermode="PageRenderMode" />
     <ReconnectModal />
+    <script src="@Assets["lib/fullcalendar/calendar.js"]"></script>
+    <script src="@Assets["lib/fullcalendar/bootstrap5.js"]"></script>
+    <script src="@Assets["lib/chartjs/chart.umd.js"]"></script>
+    <script src="@Assets["lib/chartjs/chartjs-plugin-datalabels.min.js"]"></script>
+    <script src="@Assets["_content/BlazorExpress.ChartJS/blazorexpress.chartjs.js"]"></script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
 </body>
-
 </html>
+@code {
+    [CascadingParameter] public HttpContext HttpContext { get; set; } = default!;
+    private IComponentRenderMode? PageRenderMode => HttpContext.AcceptsInteractiveRouting()
+        ? new InteractiveServerRenderMode(prerender: false) : null;
+}
