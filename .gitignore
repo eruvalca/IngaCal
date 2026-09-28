@@ -61,3 +61,8 @@ nunit-*.xml
 *.sqlite-*
 IngaCal/Data/keys/
 IngaCal/Data/backups/
+*.bak
+*.trn
+*.mdf
+*.ndf
+*.ldf

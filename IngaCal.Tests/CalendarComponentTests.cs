@@ -83,7 +83,7 @@ public sealed class CalendarComponentTests
         await using var context = await EditorContextAsync();
         ActivityEdit? submitted = null;
         var editor = context.Render<ActivityEditor>(parameters => parameters
-            .Add(x => x.Draft, new ActivityDraft(null, SqliteJournal.Morning, SqliteJournal.Morning.AddHours(1)))
+            .Add(x => x.Draft, new ActivityDraft(null, SqlServerJournal.Morning, SqlServerJournal.Morning.AddHours(1)))
             .Add(x => x.Save, value => submitted = value));
 
         editor.Find("form").SubmitWithEnabledButton();
@@ -109,7 +109,7 @@ public sealed class CalendarComponentTests
         await using var context = await EditorContextAsync();
         var active = new TagDto(Guid.NewGuid(), "Active", "#123456", false, Guid.NewGuid());
         var archived = new TagDto(Guid.NewGuid(), "Archived", "#abcdef", true, Guid.NewGuid());
-        var original = new ActivityDto(Guid.NewGuid(), "Original", "Notes", SqliteJournal.Morning, SqliteJournal.Morning.AddMinutes(37), Guid.NewGuid(), [active, archived]);
+        var original = new ActivityDto(Guid.NewGuid(), "Original", "Notes", SqlServerJournal.Morning, SqlServerJournal.Morning.AddMinutes(37), Guid.NewGuid(), [active, archived]);
         ActivityEdit? submitted = null;
         var editor = context.Render<ActivityEditor>(parameters => parameters
             .Add(x => x.Draft, new ActivityDraft(original, original.Start, original.End))
@@ -136,7 +136,7 @@ public sealed class CalendarComponentTests
     public async Task Editor_DeleteRequiresConfirmation_AndKeepItCancels()
     {
         await using var context = await EditorContextAsync();
-        var original = new ActivityDto(Guid.NewGuid(), "Original", "", SqliteJournal.Morning, SqliteJournal.Morning.AddHours(1), Guid.NewGuid(), []);
+        var original = new ActivityDto(Guid.NewGuid(), "Original", "", SqlServerJournal.Morning, SqlServerJournal.Morning.AddHours(1), Guid.NewGuid(), []);
         var deleteCount = 0;
         var editor = context.Render<ActivityEditor>(parameters => parameters
             .Add(x => x.Draft, new ActivityDraft(original, original.Start, original.End))
@@ -156,7 +156,7 @@ public sealed class CalendarComponentTests
     public async Task Editor_ActionsAreEnabledWhenIdle_DisabledWhileBusy_AndEnabledAfterCompletion()
     {
         await using var context = await EditorContextAsync();
-        var original = new ActivityDto(Guid.NewGuid(), "Original", "", SqliteJournal.Morning, SqliteJournal.Morning.AddHours(1), Guid.NewGuid(), []);
+        var original = new ActivityDto(Guid.NewGuid(), "Original", "", SqlServerJournal.Morning, SqlServerJournal.Morning.AddHours(1), Guid.NewGuid(), []);
         var editor = context.Render<ActivityEditor>(parameters => parameters
             .Add(x => x.Draft, new ActivityDraft(original, original.Start, original.End))
             .Add(x => x.Busy, false));

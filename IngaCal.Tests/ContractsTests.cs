@@ -10,7 +10,7 @@ public sealed class ContractsTests
     [InlineData(" ", "Only description", "Only description")]
     public void DisplayTitle_UsesTitleOrFirstDescriptionLine(string title, string description, string expected)
     {
-        var item = new ActivityDto(Guid.NewGuid(), title, description, SqliteJournal.Morning, SqliteJournal.Morning.AddMinutes(17), Guid.NewGuid(), []);
+        var item = new ActivityDto(Guid.NewGuid(), title, description, SqlServerJournal.Morning, SqlServerJournal.Morning.AddMinutes(17), Guid.NewGuid(), []);
         Assert.Equal(expected, item.DisplayTitle);
         Assert.Equal(17, item.Minutes);
     }

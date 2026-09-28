@@ -9,12 +9,14 @@ using ReportsPage = IngaCal.Components.Pages.Reports;
 
 namespace IngaCal.Tests;
 
-public sealed class PageIntegrationTests
+[Collection(SqlServerCollection.Name)]
+[Trait("Category", "Database")]
+public sealed class PageIntegrationTests(SqlServerFixture server)
 {
     [Fact]
     public async Task Home_InitializesCalendarWithActualViewAndDeviceZone_AndUpdatesViewFromToolbar()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         await using var context = new BunitContext();
         var calendarModule = context.JSInterop.SetupModule("./Components/Calendar/CalendarSurface.razor.js");
         calendarModule.Mode = JSRuntimeMode.Loose;
@@ -44,14 +46,14 @@ public sealed class PageIntegrationTests
     [Fact]
     public async Task Reports_PassesActualDeviceZoneToFiltersAndDarkThemeToCharts()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         await using var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.JSInterop.SetupModule(ReportChartLabelsInterop.ModulePath).Mode = JSRuntimeMode.Loose;
         var browser = new BrowserContext(context.JSInterop.JSRuntime);
         await browser.BrowserChanged(new("Asia/Kathmandu", "dark"));
         var start = JournalTime.Resolve(browser.Today.ToDateTime(new TimeOnly(9, 0)), browser.TimeZoneId);
-        await journal.Activities().SaveAsync(SqliteJournal.Edit(start, start.AddHours(1)));
+        await journal.Activities().SaveAsync(SqlServerJournal.Edit(start, start.AddHours(1)));
         context.Services.AddLogging();
         context.Services.AddSingleton(browser);
         context.Services.AddSingleton<ITagService>(journal.Tags());

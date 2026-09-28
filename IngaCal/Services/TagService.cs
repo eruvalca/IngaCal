@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 using IngaCal.Data;
-using Microsoft.Data.Sqlite;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace IngaCal.Services;
@@ -32,7 +32,7 @@ public sealed partial class TagService(IDbContextFactory<ApplicationDbContext> f
         if (!edit.Id.HasValue) db.Tags.Add(tag);
         try { await db.SaveChangesAsync(token); }
         catch (DbUpdateConcurrencyException) { throw new JournalException("This tag changed in another tab. Refresh and try again."); }
-        catch (DbUpdateException e) when (e.InnerException is SqliteException { SqliteErrorCode: 19 })
+        catch (DbUpdateException e) when (e.InnerException is SqlException { Number: 2601 or 2627 })
         { throw new JournalException("You already have a tag with this name, possibly in your archived tags."); }
         return ToDto(tag);
     }

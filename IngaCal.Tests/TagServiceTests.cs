@@ -1,17 +1,64 @@
 using IngaCal.Services;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 
 namespace IngaCal.Tests;
 
-public sealed class TagServiceTests
+[Collection(SqlServerCollection.Name)]
+[Trait("Category", "Database")]
+public sealed class TagServiceTests(SqlServerFixture server)
 {
+    [Fact]
+    public async Task Save_ConcurrentDuplicateNames_OneSucceedsAndOneReportsDuplicate()
+    {
+        await using var journal = await SqlServerJournal.CreateAsync(server);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<Exception?> Write(string name)
+        {
+            await gate.Task;
+            return await Record.ExceptionAsync(() => journal.Tags().SaveAsync(new(null, name, "#123456")));
+        }
+        var first = Write("Reading");
+        var second = Write(" reading ");
+        gate.SetResult();
+        var outcomes = await Task.WhenAll(first, second);
+        Assert.Single(outcomes, x => x is null);
+        var error = Assert.IsType<JournalException>(Assert.Single(outcomes, x => x is not null));
+        Assert.Contains("already have a tag", error.Message);
+        Assert.Single(await journal.Tags().ListAsync());
+    }
+
+    [Theory]
+    [InlineData("cafe", "café")]
+    [InlineData("café", "cafe\u0301")]
+    public async Task Save_DistinctUnicodeNormalizedNames_RemainDistinct(string first, string second)
+    {
+        await using var journal = await SqlServerJournal.CreateAsync(server);
+        var a = await journal.Tags().SaveAsync(new(null, first, "#123456"));
+        var b = await journal.Tags().SaveAsync(new(null, second, "#123456"));
+        Assert.NotEqual(a.Id, b.Id);
+        Assert.Equal(2, (await journal.Tags().ListAsync()).Count);
+        var error = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(new(null, second.ToUpperInvariant(), "#abcdef")));
+        Assert.Contains("already have a tag", error.Message);
+    }
+
+    [Fact]
+    public async Task Save_MissingAccount_DoesNotMisreportForeignKeyViolationAsDuplicate()
+    {
+        await using var journal = await SqlServerJournal.CreateAsync(server);
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => journal.Tags("deleted-user").SaveAsync(new(null, "Name", "#123456")));
+        Assert.Equal(547, Assert.IsType<SqlException>(error.InnerException).Number);
+        Assert.Empty(await journal.Tags().ListAsync());
+    }
+
     [Fact]
     public async Task List_OrdersNamesAndIncludesArchivedHistory_OnlyForCurrentAccount()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         await journal.Tags().SaveAsync(new(null, "Work", "#123456"));
         await journal.Tags().SaveAsync(new(null, "Books", "#abcdef"));
         await journal.Tags().SaveAsync(new(null, "Archived", "#654321", IsArchived: true));
-        await journal.Tags(SqliteJournal.Bob).SaveAsync(new(null, "Other account", "#000000"));
+        await journal.Tags(SqlServerJournal.Bob).SaveAsync(new(null, "Other account", "#000000"));
 
         var tags = await journal.Tags().ListAsync();
         Assert.Equal(new[] { "Archived", "Books", "Work" }, tags.Select(x => x.Name));
@@ -22,62 +69,62 @@ public sealed class TagServiceTests
     [Fact]
     public async Task Save_NormalizesUniqueNamePerAccount_IncludingArchivedNames()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         var tag = await journal.Tags().SaveAsync(new(null, "  Reading  ", "#123456"));
-        await journal.Tags().SaveAsync(SqliteJournal.Edit(tag) with { IsArchived = true });
+        await journal.Tags().SaveAsync(SqlServerJournal.Edit(tag) with { IsArchived = true });
         var conflict = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(new(null, "reading", "#abcdef")));
-        var other = await journal.Tags(SqliteJournal.Bob).SaveAsync(new(null, "reading", "#abcdef"));
+        var other = await journal.Tags(SqlServerJournal.Bob).SaveAsync(new(null, "reading", "#abcdef"));
 
         Assert.Contains("already have a tag", conflict.Message);
         var own = Assert.Single(await journal.Tags().ListAsync());
         Assert.Equal("Reading", own.Name);
         Assert.True(own.IsArchived);
-        Assert.Equal(other.Id, Assert.Single(await journal.Tags(SqliteJournal.Bob).ListAsync()).Id);
+        Assert.Equal(other.Id, Assert.Single(await journal.Tags(SqlServerJournal.Bob).ListAsync()).Id);
     }
 
     [Fact]
     public async Task Save_ArchiveRenameRecolorRestore_UpdatesHistoricalActivities()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         var tag = await journal.Tags().SaveAsync(new(null, "Old", "#123456"));
-        await journal.Activities().SaveAsync(SqliteJournal.Edit(tags: [tag.Id]));
-        var archived = await journal.Tags().SaveAsync(SqliteJournal.Edit(tag) with { Name = "  Books  ", Color = "#abcdef", IsArchived = true });
-        var history = Assert.Single(await journal.Activities().ListAsync(SqliteJournal.Morning, SqliteJournal.Morning.AddDays(1)));
+        await journal.Activities().SaveAsync(SqlServerJournal.Edit(tags: [tag.Id]));
+        var archived = await journal.Tags().SaveAsync(SqlServerJournal.Edit(tag) with { Name = "  Books  ", Color = "#abcdef", IsArchived = true });
+        var history = Assert.Single(await journal.Activities().ListAsync(SqlServerJournal.Morning, SqlServerJournal.Morning.AddDays(1)));
 
         var historicalTag = Assert.Single(history.Tags);
         Assert.Equal("Books", historicalTag.Name);
         Assert.Equal("#abcdef", historicalTag.Color);
         Assert.True(historicalTag.IsArchived);
         Assert.NotEqual(tag.Version, archived.Version);
-        var restored = await journal.Tags().SaveAsync(SqliteJournal.Edit(archived) with { IsArchived = false });
+        var restored = await journal.Tags().SaveAsync(SqlServerJournal.Edit(archived) with { IsArchived = false });
         Assert.False(restored.IsArchived);
-        var newActivity = await journal.Activities().SaveAsync(SqliteJournal.Edit(SqliteJournal.Morning.AddHours(2), SqliteJournal.Morning.AddHours(3), [restored.Id]));
+        var newActivity = await journal.Activities().SaveAsync(SqlServerJournal.Edit(SqlServerJournal.Morning.AddHours(2), SqlServerJournal.Morning.AddHours(3), [restored.Id]));
         Assert.Equal(restored.Id, Assert.Single(newActivity.Tags).Id);
     }
 
     [Fact]
     public async Task Save_StaleAndForeignEditsRejected_PreserveLatestTag()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         var original = await journal.Tags().SaveAsync(new(null, "Original", "#123456"));
-        var latest = await journal.Tags().SaveAsync(SqliteJournal.Edit(original) with { Name = "Latest", Color = "#abcdef" });
-        var stale = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(SqliteJournal.Edit(original) with { IsArchived = true }));
-        var foreign = await Assert.ThrowsAsync<JournalException>(() => journal.Tags(SqliteJournal.Bob).SaveAsync(SqliteJournal.Edit(latest) with { Name = "Forged" }));
+        var latest = await journal.Tags().SaveAsync(SqlServerJournal.Edit(original) with { Name = "Latest", Color = "#abcdef" });
+        var stale = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(SqlServerJournal.Edit(original) with { IsArchived = true }));
+        var foreign = await Assert.ThrowsAsync<JournalException>(() => journal.Tags(SqlServerJournal.Bob).SaveAsync(SqlServerJournal.Edit(latest) with { Name = "Forged" }));
 
         Assert.Contains("changed in another tab", stale.Message);
         Assert.Contains("no longer available", foreign.Message);
         Assert.Equal(latest, Assert.Single(await journal.Tags().ListAsync()));
-        Assert.Empty(await journal.Tags(SqliteJournal.Bob).ListAsync());
+        Assert.Empty(await journal.Tags(SqlServerJournal.Bob).ListAsync());
     }
 
     [Fact]
     public async Task Save_RenameToDuplicateName_RejectsAndPreservesOriginalTag()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         await journal.Tags().SaveAsync(new(null, "Taken", "#123456"));
         var other = await journal.Tags().SaveAsync(new(null, "Keep", "#abcdef"));
 
-        var error = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(SqliteJournal.Edit(other) with { Name = "TAKEN", Color = "#000000", IsArchived = true }));
+        var error = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(SqlServerJournal.Edit(other) with { Name = "TAKEN", Color = "#000000", IsArchived = true }));
         Assert.Contains("already have a tag", error.Message);
         var unchanged = (await journal.Tags().ListAsync()).Single(x => x.Id == other.Id);
         Assert.Equal("Keep", unchanged.Name);
@@ -96,7 +143,7 @@ public sealed class TagServiceTests
     [InlineData("name", "#123456\n", "valid tag color")]
     public async Task Save_InvalidInputRejected_WithoutPersisting(string name, string color, string expectedError)
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         var error = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(new(null, name, color)));
         Assert.Contains(expectedError, error.Message);
         Assert.Empty(await journal.Tags().ListAsync());
@@ -105,7 +152,7 @@ public sealed class TagServiceTests
     [Fact]
     public async Task Save_NameLengthBoundary_AcceptsSixtyAndRejectsSixtyOne()
     {
-        await using var journal = await SqliteJournal.CreateAsync();
+        await using var journal = await SqlServerJournal.CreateAsync(server);
         var accepted = await journal.Tags().SaveAsync(new(null, new string('a', 60), "#AbCdEf"));
         var error = await Assert.ThrowsAsync<JournalException>(() => journal.Tags().SaveAsync(new(null, new string('b', 61), "#AbCdEf")));
         Assert.Contains("60 characters", error.Message);
