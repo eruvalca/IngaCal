@@ -133,7 +133,7 @@ public sealed class CalendarComponentTests
     }
 
     [Fact]
-    public async Task Editor_DeleteRequiresConfirmation_AndKeepItCancels()
+    public async Task Editor_DeleteRequiresConfirmationInActionBar_AndKeepItCancels()
     {
         await using var context = await EditorContextAsync();
         var original = new ActivityDto(Guid.NewGuid(), "Original", "", SqlServerJournal.Morning, SqlServerJournal.Morning.AddHours(1), Guid.NewGuid(), []);
@@ -144,11 +144,14 @@ public sealed class CalendarComponentTests
 
         editor.FindAll("button").Single(x => x.TextContent == "Delete").ClickEnabled();
         Assert.Equal(0, deleteCount);
-        Assert.Contains("This cannot be undone", editor.Markup);
+        var confirmation = editor.Find(".editor-actions [role=alert]");
+        Assert.Contains("This cannot be undone", confirmation.TextContent);
+        Assert.Equal("button", confirmation.QuerySelector("button")!.GetAttribute("type"));
         editor.FindAll("button").Single(x => x.TextContent == "Keep it").ClickEnabled();
         Assert.DoesNotContain("This cannot be undone", editor.Markup);
+        Assert.Equal(0, deleteCount);
         editor.FindAll("button").Single(x => x.TextContent == "Delete").ClickEnabled();
-        editor.FindAll("button").Single(x => x.TextContent == "Delete activity").ClickEnabled();
+        editor.FindAll(".editor-actions button").Single(x => x.TextContent == "Delete activity").ClickEnabled();
         Assert.Equal(1, deleteCount);
     }
 
@@ -169,7 +172,7 @@ public sealed class CalendarComponentTests
 
         editor.Render(parameters => parameters.Add(x => x.Busy, true));
         actions = editor.FindAll(".editor-heading button, .editor-actions button");
-        Assert.Equal(5, actions.Count);
+        Assert.Equal(7, actions.Count);
         Assert.All(actions, action => Assert.True(action.HasAttribute("disabled"), action.OuterHtml));
         Assert.True(editor.FindAll("button").Single(x => x.TextContent == "Delete activity").HasAttribute("disabled"));
         Assert.Equal("Saving…", editor.Find("button[type=submit]").TextContent);

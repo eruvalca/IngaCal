@@ -32,7 +32,7 @@ Names below identify methods in `IngaCal.Tests`. Parameterized methods include t
 | “Manual entry supports exact minutes” and “Support cross-midnight activities and explicit start/end dates.” | `CalendarComponentTests.Editor_ManualExactMinuteEntry_ValidatesTextAndSendsUtcCrossMidnightTimes`; `ActivityServiceTests.Save_CrossMidnightConflict_RejectsOverlapAndKeepsExactMinuteDuration`. |
 | “Include a searchable multi-tag picker, inline tag creation” | `CalendarComponentTests.TagPicker_SearchAndSelection_KeepSelectedArchivedTagsButHideUnselectedArchivedTags`; `CalendarComponentTests.TagPicker_InlineCreation_SelectsNewTagAndClearsDraftOnlyOnSuccess`; `ActivityServiceTests.Save_UpdatesTagSet_TrimsTextAndNormalizesUtc`. |
 | “Duplication opens an editable draft.” | `CalendarComponentTests.Editor_CopyCreatesEditableTomorrowDraft_WithoutUpdatingOriginalOrReusingArchivedTags`. |
-| “Deletion with confirmation” | `CalendarComponentTests.Editor_DeleteRequiresConfirmation_AndKeepItCancels`. |
+| “Deletion with confirmation” | `CalendarComponentTests.Editor_DeleteRequiresConfirmationInActionBar_AndKeepItCancels` keeps the confirmation in the sticky action bar; `PageIntegrationTests.Home_ConfirmActivityDeletion_RemovesTaggedActivityAndRefreshesCalendar` verifies persistence, dialog dismissal, and refreshed calendar events while retaining other activities and the tag. |
 | “Editor buttons are enabled idle/disabled busy” | `CalendarComponentTests.Editor_ActionsAreEnabledWhenIdle_DisabledWhileBusy_AndEnabledAfterCompletion` checks close, copy, delete, cancel, save, and the delete confirmation across state transitions. |
 | “Calendar initialize payload view/timeZone uses actual values” | `PageIntegrationTests.Home_InitializesCalendarWithActualViewAndDeviceZone_AndUpdatesViewFromToolbar` verifies `timeGridDay`, the device's IANA zone, and the updated `timeGridWeek` payload. |
 | “Reports Theme/TimeZone similarly” | `PageIntegrationTests.Reports_PassesActualDeviceZoneToFiltersAndDarkThemeToCharts` verifies the filter zone and dark chart options through the real page. |
@@ -102,6 +102,18 @@ Azure infrastructure is not provisioned or tested here. Managed identity, App Se
 An unrelated issue was observed at the time: Sign out cleared the cookie but the logout endpoint constructed `~//` from the navigation form's `/` return URL, causing a local-redirect exception. The endpoint now uses the supplied local URL directly; deployment smoke checks should confirm the redirect. Hardware passkey/2FA ceremonies were not exercised in this test; passkey persistence is covered by the automated SQL Server tests.
 
 ## Browser and deployment checks
+
+### Activity delete confirmation — October 20, 2026
+
+Reproduced the confirmation appearing below the visible portion of the editor while its sticky action bar remained on screen. The confirmation now sits inside that bar, so clicking Delete immediately exposes Delete activity and Keep it. Both confirmation buttons are disabled while an operation is running.
+
+Browser checks against a disposable SQL Server database verified the confirmation on desktop and at a 390px phone viewport in light and dark themes. Keep it dismissed the confirmation without deleting; Delete activity closed the editor, removed the activity, and still showed an empty calendar after a reload.
+
+The Release test build succeeded (with existing NU1902/NU1903 warnings for `System.Security.Cryptography.Pkcs` 9.0.11). The final focused run passed **14 tests, 0 failed, 0 skipped**:
+
+```powershell
+dotnet test IngaCal.Tests/IngaCal.Tests.csproj -c Release --no-build --no-restore --filter 'FullyQualifiedName~CalendarComponentTests|FullyQualifiedName~PageIntegrationTests|FullyQualifiedName~ActivityServiceTests.Crud_IsolatedByAccount_EvenWithForgedIdentifiers|FullyQualifiedName~ActivityServiceTests.SaveAndDelete_StaleVersion_PreserveLatestActivity' --verbosity minimal
+```
 
 ### Pie chart extension
 

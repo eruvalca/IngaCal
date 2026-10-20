@@ -14,6 +14,51 @@ namespace IngaCal.Tests;
 public sealed class PageIntegrationTests(SqlServerFixture server)
 {
     [Fact]
+    public async Task Home_ConfirmActivityDeletion_RemovesTaggedActivityAndRefreshesCalendar()
+    {
+        await using var journal = await SqlServerJournal.CreateAsync(server);
+        var tag = await journal.Tags().SaveAsync(new(null, "Focus", "#54776d"));
+        var activity = await journal.Activities().SaveAsync(SqlServerJournal.Edit(tags: [tag.Id]));
+        var remaining = await journal.Activities().SaveAsync(SqlServerJournal.Edit(
+            start: activity.End, end: activity.End.AddHours(1), title: "Keep this activity"));
+        await using var context = new BunitContext();
+        var calendarModule = context.JSInterop.SetupModule("./Components/Calendar/CalendarSurface.razor.js");
+        calendarModule.Mode = JSRuntimeMode.Loose;
+        context.JSInterop.SetupModule("./Components/Calendar/ActivityEditor.razor.js").Mode = JSRuntimeMode.Loose;
+        var browser = new BrowserContext(context.JSInterop.JSRuntime);
+        await browser.BrowserChanged(new("America/Chicago", "light"));
+        context.Services.AddLogging();
+        context.Services.AddSingleton(browser);
+        context.Services.AddSingleton<IActivityService>(journal.Activities());
+        context.Services.AddSingleton<ITagService>(journal.Tags());
+
+        var page = context.Render<Home>();
+        var calendar = page.FindComponent<CalendarSurface>();
+        await calendar.Instance.OnRange(new(activity.Start, remaining.End));
+        page.WaitForAssertion(() => Assert.Equal(2, calendar.Instance.Activities.Count));
+        await calendar.Instance.OnActivity(activity.Id);
+        page.WaitForAssertion(() => Assert.Single(page.FindComponents<ActivityEditor>()));
+        page.FindAll("button").Single(x => x.TextContent == "Delete").ClickEnabled();
+
+        Assert.Equal(2, (await journal.Activities().ListAsync(activity.Start, remaining.End)).Count);
+        page.FindAll(".editor-actions button").Single(x => x.TextContent == "Delete activity").ClickEnabled();
+        page.WaitForAssertion(() =>
+        {
+            Assert.Empty(page.FindComponents<ActivityEditor>());
+            Assert.Equal(remaining.Id, Assert.Single(calendar.Instance.Activities).Id);
+            Assert.Single(page.FindAll(".activity-list-row"));
+            Assert.Empty(page.FindAll("[role=alert]"));
+        });
+
+        Assert.Equal(remaining.Id, Assert.Single(await journal.Activities().ListAsync(activity.Start, remaining.End)).Id);
+        Assert.Equal(tag.Id, Assert.Single(await journal.Tags().ListAsync()).Id);
+        var update = JsonSerializer.SerializeToElement(calendarModule.Invocations.Last(x => x.Identifier == "update").Arguments[1]);
+        var events = update.GetProperty("events");
+        Assert.Equal(1, events.GetArrayLength());
+        Assert.Equal(remaining.Id, events[0].GetProperty("id").GetGuid());
+    }
+
+    [Fact]
     public async Task Home_InitializesCalendarWithActualViewAndDeviceZone_AndUpdatesViewFromToolbar()
     {
         await using var journal = await SqlServerJournal.CreateAsync(server);
